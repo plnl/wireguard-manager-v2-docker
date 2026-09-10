@@ -1,12 +1,15 @@
- version: "3.8"
- 
- services:
-   wg-manager:
-     build:
-       context: .
-       dockerfile: Dockerfile
-     container_name: wg-manager
-     restart: unless-stopped
+version: "3.8"
+
+services:
+  wg-manager:
+    # 方式一：直接拉取 Docker Hub 镜像（推荐，大多数用户用这个）
+    image: YOUR_DOCKER_USERNAME/wireguard-manager-v2:latest
+    # 方式二：本地构建（取消注释下面两行，注释掉上面的 image 行）
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: wg-manager
+    restart: unless-stopped
      # 必须用 host 网络：采集器需要访问宿主机的 WireGuard netlink 接口
      network_mode: host
      # 需要 NET_ADMIN 能力才能执行 wg show / iptables / ip 等命令

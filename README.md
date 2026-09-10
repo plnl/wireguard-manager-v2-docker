@@ -57,9 +57,33 @@
          └── wireguard-manager-web.sudoers
  ```
  
- ## 快速开始
- 
- ### 1. 安装 Docker
+## 快速开始
+
+### 方式 A：直接拉取镜像（推荐）
+
+```bash
+# 拉取镜像
+docker pull YOUR_DOCKER_USERNAME/wireguard-manager-v2:latest
+
+# 下载 docker-compose.yml
+curl -O https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/wireguard-manager-v2-docker/main/docker-compose.yml
+
+# 启动
+docker compose up -d
+```
+
+### 方式 B：本地构建
+
+```bash
+git clone https://github.com/YOUR_GITHUB_USERNAME/wireguard-manager-v2-docker.git
+cd wireguard-manager-v2-docker
+# 注释 image 行，取消注释 build 行
+docker compose up -d --build
+```
+
+### 前置准备（两种方式都需要）
+
+### 1. 安装 Docker
  
  ```bash
  curl -fsSL https://get.docker.com | bash
@@ -237,9 +261,24 @@
  | wgmgr 脚本 | 修改宿主机文件 → `docker compose restart`（卷映射） |
  | Web Python 源码 | 更新 `app/web/` → `docker compose up -d --build` |
  | manager.conf | `wgmgr server rebuild` → `wgmgr server restart` |
- | web.conf | `docker compose restart` |
- 
- ## 为什么需要 host 网络 + NET_ADMIN
+| web.conf | `docker compose restart` |
+
+## CI/CD 自动构建
+
+项目包含 GitHub Actions 工作流（`.github/workflows/docker-publish.yml`），每次 push 到 `main` 分支或打 `v*` 标签时自动构建并推送镜像到 Docker Hub。
+
+在 GitHub 仓库 **Settings > Secrets and variables > Actions** 中添加：
+
+| Secret | 说明 |
+|---|---|
+| `DOCKER_USERNAME` | Docker Hub 用户名 |
+| `DOCKER_TOKEN` | Docker Hub Access Token（Docker Hub > Account Settings > Security > New Access Token）|
+
+配好后每次 push 代码，Actions 自动构建推送 `latest` + `sha-xxxxxxx` 标签。打 `v1.0.0` 标签还会推送 `1.0.0` 版本标签。
+
+**首次使用前**：把 README 和 docker-compose.yml 中的 `YOUR_DOCKER_USERNAME` 替换为你的 Docker Hub 用户名，`YOUR_GITHUB_USERNAME` 替换为你的 GitHub 用户名。
+
+## 为什么需要 host 网络 + NET_ADMIN
  
  采集器通过 netlink 调用 `wg show` 查询宿主机 WireGuard 接口状态。Docker 默认 bridge 网络有独立的网络命名空间，容器内看不到宿主机的 `wg0` 接口。`network_mode: host` 让容器共享宿主机网络命名空间，`CAP_NET_ADMIN` 授权 netlink 访问，`CAP_NET_RAW` 授权 iptables/nft 防火墙快照。
  
