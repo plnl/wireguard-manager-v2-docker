@@ -1,0 +1,44 @@
+# WireGuard Manager V2.0 —— Web 面板 / JSON API
+#
+# 降权运行：User=wgmgr-web。面板自己一行 wg/nft/ip 都不执行——
+#   * 所有读操作来自 state/*.json（由 root 的采集进程写好；state/ 对 wgmgr-web
+#     组可读，见 init_directories 里的 setgid 处理）；
+#   * 所有写操作映射到 wgm_common.ALLOWED_CLI 白名单里的一条固定 argv，经
+#     /etc/sudoers.d/wireguard-manager-web 免密 sudo 调用 root 的 wgmgr。
+#
+# 重要：不要给本单元开 NoNewPrivileges=true。sudo 是 setuid 程序，
+# NoNewPrivileges 会让它无法提权，面板的所有写操作都会失败。
+# 同理不要加 ProtectSystem / ReadOnlyPaths / CapabilityBoundingSet —— 它们会
+# 作用到 sudo 派生出的 root 子进程（wgmgr），把改防火墙/路由/配置这些合法操作
+# 一并挡掉。本单元的安全边界是"降权账号 + 只放行 wgmgr 的 sudoers + Python 侧
+# 子命令白名单"这三层，而不是 systemd 文件沙箱。PrivateTmp 安全（理由同采集单元）。
+#
+# 配套教程见源码目录下的《WireGuard-Manager-V2.0-面板搭建教程.md》。
+
+[Unit]
+Description=WireGuard Manager V2.0 web panel (HTTP JSON API + Dashboard)
+After=network.target wireguard-manager-collector.service
+# 仅排序，不 Require/Wants 采集服务：采集挂了面板照常起，只是数据会显示为陈旧。
+# 这正是"状态与配置分离"的目的——面板和采集互不拖累，更不拖累 WireGuard 本身。
+
+[Service]
+Type=simple
+User=wgmgr-web
+Group=wgmgr-web
+Environment=WGM_MANAGER_DIR=/etc/wireguard-manager
+Environment=WGM_STATE_DIR=/etc/wireguard-manager/state
+Environment=WGM_LOG_DIR=/etc/wireguard-manager/logs
+Environment=WGM_WEB_CONF=/etc/wireguard-manager/web.conf
+Environment=WGM_MANAGER_CONF=/etc/wireguard-manager/manager.conf
+Environment=WGM_CLI=/usr/local/bin/wgmgr
+Environment=WGM_INTERFACE=wg0
+WorkingDirectory=/opt/wireguard-manager/web
+ExecStart=/usr/bin/python3 /opt/wireguard-manager/web/wgm_web.py
+Restart=always
+RestartSec=5
+PrivateTmp=true
+# 监听地址/端口来自 web.conf 的 WEB_LISTEN（由 `wgmgr web install` 写入）。需要
+# 临时覆盖时可改成：ExecStart=/usr/bin/python3 .../wgm_web.py --listen 127.0.0.1:8443
+
+[Install]
+WantedBy=multi-user.target

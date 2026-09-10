@@ -1,0 +1,43 @@
+# WireGuard Manager V2.0 —— 采集守护进程
+#
+# 以 root 运行：它要执行 `wg show`、读 root 拥有的 manager.log、跑 nft/iptables
+# 快照，并通过 `wgmgr collect`（root）把接口/Peer/系统事实渲染成 state/*.json。
+# 这些 state 文件是降权面板（wgmgr-web）唯一的数据来源——面板自己一行 wg/nft
+# 都不执行。
+#
+# 安全说明：本单元刻意只做最小硬化。它会派生 root 子进程（wgmgr）去改防火墙、
+# 路由、sysctl 以及 /etc/wireguard 下的配置，因此 ProtectSystem / ReadOnlyPaths /
+# CapabilityBoundingSet / RestrictAddressFamilies 这类文件系统与能力沙箱一旦开启，
+# 会把这些合法操作一并挡掉。采集进程的攻击面控制落在代码约束上（只读 wg、只写
+# state/、不碰任何配置），而不是靠 systemd 沙箱。PrivateTmp 是安全的：wgmgr 对
+# /tmp 的使用（mktemp 暂存、wg-quick strip 的报错文件）都在单次调用内自包含。
+#
+# 配套教程见源码目录下的《WireGuard-Manager-V2.0-面板搭建教程.md》。
+
+[Unit]
+Description=WireGuard Manager V2.0 collector (state / traffic / health / alert)
+After=network.target
+# 刻意不 Require/Wants wg-quick@：接口名可配置，容器里也可能根本没有这个服务。
+# 采集进程在接口 down 时照常记录"接口未运行"，不会因为依赖缺失而起不来。
+
+[Service]
+Type=simple
+# 路径与 Bash 侧 web_python() 传入的环境变量保持一致；WGM_CLI 用稳定的
+# /usr/local/bin/wgmgr 符号链接（指向安装时的脚本），而不是会变的源码路径。
+Environment=WGM_MANAGER_DIR=/etc/wireguard-manager
+Environment=WGM_STATE_DIR=/etc/wireguard-manager/state
+Environment=WGM_LOG_DIR=/etc/wireguard-manager/logs
+Environment=WGM_WEB_CONF=/etc/wireguard-manager/web.conf
+Environment=WGM_MANAGER_CONF=/etc/wireguard-manager/manager.conf
+Environment=WGM_CLI=/usr/local/bin/wgmgr
+Environment=WGM_INTERFACE=wg0
+WorkingDirectory=/opt/wireguard-manager/web
+ExecStart=/usr/bin/python3 /opt/wireguard-manager/web/wgm_collector.py
+Restart=always
+RestartSec=5
+PrivateTmp=true
+# 采集间隔由 manager.conf 的 COLLECT_INTERVAL 决定（默认 30 秒）。需要临时
+# 覆盖时可改成：ExecStart=/usr/bin/python3 .../wgm_collector.py --interval 60
+
+[Install]
+WantedBy=multi-user.target

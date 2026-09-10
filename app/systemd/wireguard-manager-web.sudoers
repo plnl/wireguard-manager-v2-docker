@@ -1,0 +1,16 @@
+# /etc/sudoers.d/wireguard-manager-web
+#
+# 让降权的面板账号 wgmgr-web 免密 sudo 调用 WireGuard Manager 的 CLI。
+# 由 `wgmgr web install` 经 `visudo -cf` 校验语法后，以 0440 root:root 安装到
+# /etc/sudoers.d/；`wgmgr web uninstall` 会把它删掉。
+#
+# 只放行 /usr/local/bin/wgmgr 这一个绝对路径——不是 shell，也不是 ALL。
+# 具体哪些子命令能调（client add / site create / backup create …）由 Python 侧
+# wgm_common.ALLOWED_CLI 白名单在调用前把关，run_cli 还会拒绝含 shell 元字符的
+# 参数值。两层一起构成纵深防御：即便面板被攻破，攻击者能做的也只是"以 root 运行
+# wgmgr 的某个子命令"，而不是任意命令。
+#
+# 依赖 /etc/sudoers 里默认的 `#includedir /etc/sudoers.d`（Debian/Ubuntu 自带）。
+# 若你改过主 sudoers 去掉了这一行，本规则不会被加载，面板写操作会失败。
+
+wgmgr-web ALL=(root) NOPASSWD: /usr/local/bin/wgmgr

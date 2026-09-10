@@ -1,0 +1,47 @@
+ version: "3.8"
+ 
+ services:
+   wg-manager:
+     build:
+       context: .
+       dockerfile: Dockerfile
+     container_name: wg-manager
+     restart: unless-stopped
+     # 必须用 host 网络：采集器需要访问宿主机的 WireGuard netlink 接口
+     network_mode: host
+     # 需要 NET_ADMIN 能力才能执行 wg show / iptables / ip 等命令
+     cap_add:
+       - NET_ADMIN
+       - NET_RAW
+     # 映射宿主机配置到容器（只读部分用 :ro，读写部分不加）
+     volumes:
+       # WireGuard Manager 配置目录（web.conf, manager.conf, state/, logs/, server keys）
+       - /etc/wireguard-manager:/etc/wireguard-manager
+       # WireGuard 接口配置（wg0.conf）
+       - /etc/wireguard:/etc/wireguard:ro
+       # wgmgr 脚本源码（方便更新脚本后无需重新 build）
+       - /opt/wg-manager:/opt/wg-manager:ro
+     # 环境变量（覆盖 Dockerfile 中的默认值，按需修改）
+     environment:
+       - WGM_MANAGER_DIR=/etc/wireguard-manager
+       - WGM_STATE_DIR=/etc/wireguard-manager/state
+       - WGM_LOG_DIR=/etc/wireguard-manager/logs
+       - WGM_WEB_CONF=/etc/wireguard-manager/web.conf
+       - WGM_MANAGER_CONF=/etc/wireguard-manager/manager.conf
+       - WGM_CLI=/usr/local/bin/wgmgr
+       - WGM_INTERFACE=wg0
+     # 日志限制
+     logging:
+       driver: json-file
+       options:
+         max-size: "10m"
+         max-file: "3"
+     # 健康检查：面板端口可达即视为健康
+     healthcheck:
+       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8443/')"]
+       interval: 30s
+       timeout: 5s
+       retries: 3
+       start_period: 10s
+     # 依赖宿主机已启动 wg-quick@wg0
+     depends_on: []

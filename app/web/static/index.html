@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 面板可能被挂到公网上，不该被搜索引擎收录 -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>WireGuard Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!--
+  这个文件里刻意没有任何内联 script / style：
+  服务端下发的 CSP 是 default-src 'none'; script-src 'self'; style-src 'self'，
+  内联的会被直接拦掉。所有样式在 style.css，所有逻辑在 app.js。
+-->
+
+<div id="login" class="login-wrap" hidden>
+  <form id="login-form" class="card login-card" autocomplete="on">
+    <h1 class="login-title">WireGuard Manager</h1>
+    <p class="login-sub">请登录以管理隧道</p>
+    <p id="login-error" class="form-error" hidden></p>
+    <label class="field">
+      <span class="field-label">用户名</span>
+      <input id="login-user" name="username" type="text" autocomplete="username"
+             required maxlength="32" spellcheck="false">
+    </label>
+    <label class="field">
+      <span class="field-label">口令</span>
+      <input id="login-pass" name="password" type="password" autocomplete="current-password"
+             required maxlength="200">
+    </label>
+    <button id="login-btn" class="btn btn-primary btn-block" type="submit">登录</button>
+    <p class="login-hint">
+      口令忘记的话，SSH 登录服务器运行 <code>wgmgr</code> → 12. Web 面板 → 重设口令。
+    </p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand">WireGuard Manager</span>
+      <span id="iface-pill" class="pill pill-muted">—</span>
+    </div>
+    <div class="topbar-right">
+      <span id="state-age" class="pill pill-muted" title="state/status.json 的年龄">—</span>
+      <button id="btn-collect" class="btn btn-ghost" type="button"
+              title="立刻让采集进程刷新一轮状态">刷新状态</button>
+      <span id="whoami" class="whoami">—</span>
+      <button id="btn-logout" class="btn btn-ghost" type="button">退出</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav id="nav" class="sidenav" aria-label="主导航"></nav>
+    <main id="view" class="content" tabindex="-1"></main>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="modal-root"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
