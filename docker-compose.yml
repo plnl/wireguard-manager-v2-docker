@@ -3,7 +3,7 @@ version: "3.8"
 services:
   wg-manager:
     # 方式一：直接拉取 Docker Hub 镜像（推荐，大多数用户用这个）
-    image: YOUR_DOCKER_USERNAME/wireguard-manager-v2:latest
+    image: plnl/wireguard-manager-v2:latest
     # 方式二：本地构建（取消注释下面两行，注释掉上面的 image 行）
     # build:
     #   context: .

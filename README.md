@@ -63,10 +63,10 @@
 
 ```bash
 # 拉取镜像
-docker pull YOUR_DOCKER_USERNAME/wireguard-manager-v2:latest
+docker pull plnl/wireguard-manager-v2:latest
 
 # 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/wireguard-manager-v2-docker/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/plnl/wireguard-manager-v2-docker/main/docker-compose.yml
 
 # 启动
 docker compose up -d
@@ -75,7 +75,7 @@ docker compose up -d
 ### 方式 B：本地构建
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/wireguard-manager-v2-docker.git
+git clone https://github.com/plnl/wireguard-manager-v2-docker.git
 cd wireguard-manager-v2-docker
 # 注释 image 行，取消注释 build 行
 docker compose up -d --build
@@ -275,8 +275,6 @@ docker compose up -d --build
 | `DOCKER_TOKEN` | Docker Hub Access Token（Docker Hub > Account Settings > Security > New Access Token）|
 
 配好后每次 push 代码，Actions 自动构建推送 `latest` + `sha-xxxxxxx` 标签。打 `v1.0.0` 标签还会推送 `1.0.0` 版本标签。
-
-**首次使用前**：把 README 和 docker-compose.yml 中的 `YOUR_DOCKER_USERNAME` 替换为你的 Docker Hub 用户名，`YOUR_GITHUB_USERNAME` 替换为你的 GitHub 用户名。
 
 ## 为什么需要 host 网络 + NET_ADMIN
  
