@@ -42,6 +42,7 @@ import wgm_alert
 import wgm_common as C
 import wgm_health
 import wgm_traffic
+import wgm_share
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -725,6 +726,97 @@ def ep_peer_config(ctx, match, query, body):
             'attachment; filename="%s.conf"' % name)
 
 
+def ep_available_ips(ctx, match, query, body):
+    status = _status_payload()
+    iface = status.get("interface") or {}
+    peers = status.get("peers") or []
+    network = iface.get("vpn_network4") or ""
+    if not network or "/" not in network:
+        return {"available": [], "network": network, "total": 0}
+    import ipaddress
+    try:
+        net = ipaddress.ip_network(network, strict=False)
+    except ValueError:
+        return {"available": [], "network": network, "total": 0}
+    used = set()
+    for p in peers:
+        ip = (p.get("allowed_ips") or "").split(",")[0].strip().split("/")[0]
+        if ip:
+            used.add(ip)
+    server_ip = iface.get("server_ip4")
+    if server_ip:
+        used.add(server_ip)
+    available = [str(ip) for ip in net.hosts() if str(ip) not in used]
+    return {
+        "available": available[:50],
+        "total": len(available),
+        "network": network,
+        "used_count": len(used),
+    }
+
+
+def ep_share_create(ctx, match, query, body):
+    name = _need_name(urllib.parse.unquote(match.group("name")), "peer")
+    if _peer_kind(name) != "client":
+        raise BadRequest("只有客户端可以创建分享链接")
+    ttl = int(body.get("expire_seconds") or 86400)
+    link = wgm_share.create_link(name, ttl)
+    ctx["log_line"] = "创建分享链接 %s -> %s by %s" % (link["id"], name, ctx["user"])
+    return {"ok": True, "link": link}
+
+
+def ep_share_list(ctx, match, query, body):
+    name = _need_name(urllib.parse.unquote(match.group("name")), "peer")
+    links = wgm_share.list_links(name)
+    return {"links": links, "count": len(links)}
+
+
+def ep_share_delete(ctx, match, query, body):
+    name = _need_name(urllib.parse.unquote(match.group("name")), "peer")
+    share_id = urllib.parse.unquote(match.group("share_id"))
+    if not wgm_share.delete_link(share_id):
+        raise LookupError("分享链接不存在或已过期")
+    ctx["log_line"] = "删除分享链接 %s by %s" % (share_id, ctx["user"])
+    return {"ok": True}
+
+
+def ep_share_download(ctx, match, query, body):
+    share_id = urllib.parse.unquote(match.group("share_id"))
+    link = wgm_share.get_link(share_id)
+    if not link:
+        raise LookupError("分享链接不存在或已过期")
+    name = link.get("peer") or ""
+    if not name:
+        raise LookupError("分享链接无效")
+    code, out, err = C.run_cli(["client", "conf", name], timeout=30)
+    if code != 0:
+        raise RuntimeError((err or out).strip()[:200] or "生成配置失败")
+    return ("text/plain; charset=utf-8",
+            out.encode("utf-8"),
+            'attachment; filename="%s.conf"' % name)
+
+
+def ep_ping(ctx, match, query, body):
+    import subprocess
+    target = (body.get("target") or "").strip()
+    if not re.match(r"^(\d{1,3}\.){3}\d{1,3}$", target):
+        raise BadRequest("请输入有效的 IPv4 地址")
+    try:
+        proc = subprocess.run(
+            ["ping", "-c", "4", "-W", "2", target],
+            capture_output=True, text=True, timeout=15)
+        return {
+            "ok": True,
+            "alive": proc.returncode == 0,
+            "output": proc.stdout.strip()[-2000:],
+            "rc": proc.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": True, "alive": False, "output": "ping 超时", "rc": -1}
+    except FileNotFoundError:
+        raise BadRequest("系统未安装 ping 命令")
+
+
 def ep_peer_qrcode(ctx, match, query, body):
     name = _need_name(urllib.parse.unquote(match.group("name")), "peer")
     if _peer_kind(name) != "client":
@@ -844,6 +936,12 @@ _ROUTES = [
 
     ("GET",    r"^/api/v1/peers/(?P<name>[^/]+)/config$",    ep_peer_config,  True),
     ("GET",    r"^/api/v1/peers/(?P<name>[^/]+)/qrcode\.png$", ep_peer_qrcode, True),
+    ("GET",    r"^/api/v1/available-ips$",                   ep_available_ips, True),
+    ("GET",    r"^/api/v1/peers/(?P<name>[^/]+)/shares$",    ep_share_list,   True),
+    ("POST",   r"^/api/v1/peers/(?P<name>[^/]+)/shares$",    ep_share_create, True),
+    ("DELETE", r"^/api/v1/peers/(?P<name>[^/]+)/shares/(?P<share_id>[^/]+)$", ep_share_delete, True),
+    ("GET",    r"^/api/v1/share/(?P<share_id>[^/]+)$",       ep_share_download, False),
+    ("POST",   r"^/api/v1/ping$",                            ep_ping,         True),
 
     ("POST",   r"^/api/v1/collect$",              ep_collect,      True),
     ("POST",   r"^/api/v1/clients$",              ep_client_add,   True),

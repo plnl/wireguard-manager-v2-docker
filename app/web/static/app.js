@@ -524,115 +524,146 @@
     var views = {};
 
     // ---- 概览 ----
-    views.overview = function (host) {
-        return api("/api/v1/status").then(function (st) {
-            var sum = st.summary || {};
-            var iface = st.interface || {};
-            var web = st.web || {};
-            var coll = st.collector || {};
+   views.overview = function (host) {
+       return Promise.all([
+           api("/api/v1/status"),
+           api("/api/v1/system").catch(function () { return {}; })
+       ]).then(function (results) {
+           var st = results[0];
+           var sysData = results[1] || {};
+           var sum = st.summary || {};
+           var iface = st.interface || {};
+           var web = st.web || {};
+           var coll = st.collector || {};
 
-            var stale = st._state_stale;
-            var ageNode = el("span", { class: "pill " + (stale ? "pill-warn" : "pill-muted") },
-                "状态更新于 " + dash(st.generated_at_str) +
-                (st._state_age_sec !== null && st._state_age_sec !== undefined
-                    ? "（" + fmtDuration(st._state_age_sec) + "前）" : ""));
+           var stale = st._state_stale;
+           var ageNode = el("span", { class: "pill " + (stale ? "pill-warn" : "pill-muted") },
+               "状态更新于 " + dash(st.generated_at_str) +
+               (st._state_age_sec !== null && st._state_age_sec !== undefined
+                   ? "（" + fmtDuration(st._state_age_sec) + "前）" : ""));
 
-            var peers = st.peers || [];
-            var problemPeers = peers.filter(function (p) {
-                return p.status === "offline" || p.status === "never";
-            });
+           var peers = st.peers || [];
+           var sysInfo = sysData.system || {};
+           var sMemTotal = sysInfo.mem_total_kb || 0, sMemAvail = sysInfo.mem_avail_kb || 0;
+           var sMemPct = sMemTotal ? Math.round((1 - sMemAvail / sMemTotal) * 100) : null;
+           var sysStats = null;
+           if (sMemTotal || sysInfo.uptime_sec) {
+               sysStats = el("div", { class: "grid grid-4 section" },
+                   stat("\u8fd0\u884c\u65f6\u95f4", sysInfo.uptime_sec ? fmtDuration(sysInfo.uptime_sec) : "\u2014"),
+                   stat("\u8d1f\u8f7d", (sysInfo.loadavg || []).length
+                       ? (sysInfo.loadavg || []).map(function (x) { return Number(x).toFixed(2); }).join(" / ")
+                       : "\u2014"),
+                   stat("\u5185\u5b58", sMemPct === null ? "\u2014" : sMemPct + "%",
+                       sMemTotal ? fmtBytes(sMemAvail * 1024) + " \u53ef\u7528" : null),
+                   stat("\u78c1\u76d8\u53ef\u7528", sysInfo.disk_avail_kb_root
+                       ? fmtBytes(sysInfo.disk_avail_kb_root * 1024) : "\u2014"));
+           }
+           var problemPeers = peers.filter(function (p) {
+               return p.status === "offline" || p.status === "never";
+           });
 
-            appendAll(host, [
-                el("div", { class: "page-head" },
-                    el("div", {},
-                        el("h1", { class: "page-title", text: "概览" }),
-                        el("p", { class: "page-sub" },
-                            dash(st.hostname) + " · " + (iface.running ? "隧道运行中" : "隧道未运行"))),
-                    el("div", { class: "page-actions" }, ageNode)),
+           appendAll(host, [
+               el("div", { class: "page-head" },
+                   el("div", {},
+                       el("h1", { class: "page-title", text: "概览" }),
+                       el("p", { class: "page-sub" },
+                           dash(st.hostname) + " · " + (iface.running ? "隧道运行中" : "隧道未运行"))),
+                   el("div", { class: "page-actions" }, ageNode)),
 
-                st._state_stale ? el("div", { class: "topo-note", style: { marginBottom: "14px" } },
-                    "状态数据已经超过 5 分钟没更新。通常是采集服务停了 —— " +
-                    "运行 systemctl status wireguard-manager-collector 看一下，" +
-                    "或者点右上角“刷新状态”手动跑一轮。WireGuard 本身不受影响，" +
-                    "隧道是内核在转发，面板只是旁观者。") : null,
+               st._state_stale ? el("div", { class: "topo-note", style: { marginBottom: "14px" } },
+                   "状态数据已经超过 5 分钟没更新。通常是采集服务停了 —— " +
+                   "运行 systemctl status wireguard-manager-collector 看一下，" +
+                   "或者点右上角\u201c刷新状态\u201d手动跑一轮。WireGuard 本身不受影响，" +
+                   "隧道是内核在转发，面板只是旁观者。") : null,
 
-                el("div", { class: "grid grid-4 section" },
-                    stat("在线 Peer", sum.online, "共 " + (sum.peers_total || 0) + " 个"),
-                    stat("空闲", sum.idle, "握手 3 分钟 ~ 15 分钟"),
-                    stat("离线", sum.offline, (sum.never || 0) + " 个从未连接", sum.offline ? "sm" : null),
-                    stat("已禁用", sum.disabled, null)),
+               el("div", { class: "grid grid-4 section" },
+                   stat("在线 Peer", sum.online, "共 " + (sum.peers_total || 0) + " 个"),
+                   stat("空闲", sum.idle, "握手 3 分钟 ~ 15 分钟"),
+                   stat("离线", sum.offline, (sum.never || 0) + " 个从未连接", sum.offline ? "sm" : null),
+                  stat("已禁用", sum.disabled, null)),
 
-                el("div", { class: "grid grid-2 section" },
-                    card([
-                        el("div", { class: "section-head" },
-                            el("h2", { class: "section-title", text: "接口" })),
-                        kvList([
-                            ["接口名", iface.name],
-                            ["运行状态", iface.running
-                                ? el("span", { class: "pill pill-ok" }, el("span", { class: "dot dot-pulse" }), "UP")
-                                : el("span", { class: "pill pill-err" }, el("span", { class: "dot" }), "DOWN")],
-                            ["监听端口", iface.listen_port ? "UDP/" + iface.listen_port : "—"],
-                            ["对外地址", iface.endpoint],
-                            ["VPN 网段", iface.vpn_network4],
-                            ["本机 VPN IP", iface.server_ip4],
-                            ["公网 NAT", iface.internet_nat ? "开启" : "关闭"],
-                            ["防火墙后端", iface.fw_backend],
-                            ["客户端 / 站点", (sum.clients || 0) + " / " + (sum.sites || 0)]
-                        ]),
-                        el("div", { style: { marginTop: "12px" } },
-                            el("a", { class: "btn btn-sm", href: "#/system", text: "系统详情" }))
-                    ]),
-                    card([
-                        el("div", { class: "section-head" },
-                            el("h2", { class: "section-title", text: "累计流量" }),
-                            el("a", { class: "section-sub", href: "#/traffic", text: "看趋势 →" })),
-                        kvList([
-                            ["接收 RX", fmtBytes(sum.rx_bytes_total)],
-                            ["发送 TX", fmtBytes(sum.tx_bytes_total)]
-                        ]),
-                        el("div", { class: "section-head", style: { marginTop: "14px" } },
-                            el("h2", { class: "section-title", text: "面板服务" })),
-                        kvList([
-                            ["Web 服务", web.running
-                                ? el("span", { class: "pill pill-ok" }, "运行中")
-                                : el("span", { class: "pill pill-warn" }, "未运行")],
-                            ["监听地址", web.listen],
-                            ["采集进程", coll.running
-                                ? el("span", { class: "pill pill-ok" }, "运行中")
-                                : el("span", { class: "pill pill-err" }, "未运行")],
-                            ["采集间隔", coll.interval_sec ? coll.interval_sec + " 秒" : "—"]
-                        ])
-                    ])),
+               sysStats,
 
-                problemPeers.length ? section("需要关注", "离线或从未连接过的 Peer",
-                    [el("a", { class: "btn btn-sm", href: "#/health", text: "看诊断建议" })],
-                    card(problemPeers.map(function (p) {
-                        return el("a", { class: "check lv-error", href: "#/peers/" + encodeURIComponent(p.name),
-                                         style: { color: "inherit", display: "flex" } },
-                            el("div", { class: "check-mark", text: "✕" }),
-                            el("div", { class: "check-body" },
-                                el("div", { class: "check-title" }, p.name + " ", kindPill(p.kind)),
-                                el("div", { class: "check-detail",
-                                    text: p.status === "offline"
-                                        ? "最后握手 " + fmtAgo(p.handshake_ago_sec)
-                                        : "从未建立过握手" })));
-                    }), false)) : null
-            ]);
-        });
-    };
+               el("div", { class: "grid grid-2 section" },
+                   card([
+                       el("div", { class: "section-head" },
+                           el("h2", { class: "section-title", text: "接口" })),
+                       kvList([
+                           ["接口名", iface.name],
+                           ["运行状态", iface.running
+                               ? el("span", { class: "pill pill-ok" }, el("span", { class: "dot dot-pulse" }), "UP")
+                               : el("span", { class: "pill pill-err" }, el("span", { class: "dot" }), "DOWN")],
+                           ["监听端口", iface.listen_port ? "UDP/" + iface.listen_port : "—"],
+                           ["对外地址", iface.endpoint],
+                           ["VPN 网段", iface.vpn_network4],
+                           ["本机 VPN IP", iface.server_ip4],
+                           ["公网 NAT", iface.internet_nat ? "开启" : "关闭"],
+                           ["防火墙后端", iface.fw_backend],
+                           ["客户端 / 站点", (sum.clients || 0) + " / " + (sum.sites || 0)]
+                       ]),
+                       el("div", { style: { marginTop: "12px" } },
+                           el("a", { class: "btn btn-sm", href: "#/system", text: "系统详情" }))
+                   ]),
+                   card([
+                       el("div", { class: "section-head" },
+                           el("h2", { class: "section-title", text: "累计流量" }),
+                           el("a", { class: "section-sub", href: "#/traffic", text: "看趋势 →" })),
+                       kvList([
+                           ["接收 RX", fmtBytes(sum.rx_bytes_total)],
+                           ["发送 TX", fmtBytes(sum.tx_bytes_total)]
+                       ]),
+                       el("div", { class: "section-head", style: { marginTop: "14px" } },
+                           el("h2", { class: "section-title", text: "面板服务" })),
+                       kvList([
+                           ["Web 服务", web.running
+                               ? el("span", { class: "pill pill-ok" }, "运行中")
+                               : el("span", { class: "pill pill-warn" }, "未运行")],
+                           ["监听地址", web.listen],
+                           ["采集进程", coll.running
+                               ? el("span", { class: "pill pill-ok" }, "运行中")
+                               : el("span", { class: "pill pill-err" }, "未运行")],
+                           ["采集间隔", coll.interval_sec ? coll.interval_sec + " 秒" : "—"]
+                       ])
+                   ])),
+
+               problemPeers.length ? section("需要关注", "离线或从未连接过的 Peer",
+                   [el("a", { class: "btn btn-sm", href: "#/health", text: "看诊断建议" })],
+                   card(problemPeers.map(function (p) {
+                       return el("a", { class: "check lv-error", href: "#/peers/" + encodeURIComponent(p.name),
+                                        style: { color: "inherit", display: "flex" } },
+                           el("div", { class: "check-mark", text: "✕" }),
+                           el("div", { class: "check-body" },
+                               el("div", { class: "check-title" }, p.name + " ", kindPill(p.kind)),
+                               el("div", { class: "check-detail",
+                                   text: p.status === "offline"
+                                       ? "最后握手 " + fmtAgo(p.handshake_ago_sec)
+                                       : "从未建立过握手" })));
+                   }), false)) : null
+           ]);
+       });
+   };
 
     // ---- Peer 列表 ----
-    views.peers = function (host) {
-        var filterKind = state.peerKind || "";
-        var filterStatus = state.peerStatus || "";
+   views.peers = function (host) {
+       var filterKind = state.peerKind || "";
+       var filterStatus = state.peerStatus || "";
+       var searchTerm = state.peerSearch || "";
 
-        var qs = [];
-        if (filterKind) qs.push("kind=" + encodeURIComponent(filterKind));
-        if (filterStatus) qs.push("status=" + encodeURIComponent(filterStatus));
-        var path = "/api/v1/peers" + (qs.length ? "?" + qs.join("&") : "");
+       var qs = [];
+       if (filterKind) qs.push("kind=" + encodeURIComponent(filterKind));
+       if (filterStatus) qs.push("status=" + encodeURIComponent(filterStatus));
+       var path = "/api/v1/peers" + (qs.length ? "?" + qs.join("&") : "");
 
-        return api(path).then(function (data) {
-            var peers = data.peers || [];
+       return api(path).then(function (data) {
+           var peers = data.peers || [];
+           if (searchTerm) {
+               peers = peers.filter(function (p) {
+                   var s = searchTerm.toLowerCase();
+                   return (p.name || "").toLowerCase().indexOf(s) >= 0
+                       || (p.vpn_ip4 || "").toLowerCase().indexOf(s) >= 0
+                       || (p.endpoint || "").toLowerCase().indexOf(s) >= 0;
+               });
+           }
 
             function tab(label, key, value) {
                 return el("button", {
@@ -681,16 +712,25 @@
                     el("div", { class: "page-actions" },
                         el("button", { class: "btn btn-primary", type: "button", text: "新建客户端",
                                        onclick: addClientDialog }))),
-                el("div", { class: "tabs" },
-                    tab("全部类型", "peerKind", ""),
-                    tab("客户端", "peerKind", "client"),
-                    tab("站点", "peerKind", "site"),
-                    el("span", { style: { width: "10px" } }),
-                    tab("全部状态", "peerStatus", ""),
-                    tab("在线", "peerStatus", "online"),
-                    tab("离线", "peerStatus", "offline"),
-                    tab("已禁用", "peerStatus", "disabled")),
-                rows.length
+               el("div", { class: "tabs" },
+                   tab("全部类型", "peerKind", ""),
+                   tab("客户端", "peerKind", "client"),
+                   tab("站点", "peerKind", "site"),
+                   el("span", { style: { width: "10px" } }),
+                   tab("全部状态", "peerStatus", ""),
+                   tab("在线", "peerStatus", "online"),
+                   tab("离线", "peerStatus", "offline"),
+                   tab("已禁用", "peerStatus", "disabled")),
+               el("div", { class: "peer-search-bar" },
+                   el("input", { type: "text", class: "peer-search-input",
+                       placeholder: "搜索名称、IP、Endpoint...",
+                       value: searchTerm, autocomplete: "off",
+                       oninput: function (ev) {
+                           state.peerSearch = ev.target.value;
+                           clearTimeout(state._searchTimer);
+                           state._searchTimer = setTimeout(function () { refresh(); }, 300);
+                       } })),
+               rows.length
                     ? table([
                         { label: "名称" }, { label: "类型" }, { label: "状态" },
                         { label: "VPN IP" }, { label: "最后握手" }, { label: "Endpoint" },
@@ -721,10 +761,14 @@
                                        onclick: function () { togglePeer(p); } }),
                         isClient ? el("button", { class: "btn", type: "button", text: "下载配置",
                                        onclick: function () { downloadConf(p.name); } }) : null,
-                        isClient ? el("button", { class: "btn", type: "button", text: "查看二维码",
-                                       onclick: function () { qrcodeDialog(p.name); } }) : null,
-                        isClient ? el("button", { class: "btn", type: "button", text: "重新生成密钥",
-                                       onclick: function () { rotateKeyDialog(p); } }) : null,
+                       isClient ? el("button", { class: "btn", type: "button", text: "查看二维码",
+                                      onclick: function () { qrcodeDialog(p.name); } }) : null,
+                       isClient ? el("button", { class: "btn", type: "button", text: "分享链接",
+                                      onclick: function () { shareLinkDialog(p.name); } }) : null,
+                       el("button", { class: "btn", type: "button", text: "Ping",
+                                      onclick: function () { pingDialog(p); } }),
+                       isClient ? el("button", { class: "btn", type: "button", text: "重新生成密钥",
+                                      onclick: function () { rotateKeyDialog(p); } }) : null,
                         isSite ? el("button", { class: "btn", type: "button", text: "连通性测试",
                                        onclick: function () { siteTest(p.name); } }) : null,
                         el("button", { class: "btn btn-danger", type: "button", text: "删除",
@@ -1298,18 +1342,120 @@
             title: "重新生成 " + p.name + " 的密钥",
             confirmLabel: "轮换密钥",
             message: "会为这个客户端生成一对新的密钥并热更新到 wg0.conf。" +
-                     "旧配置立刻失效，设备会掉线，直到重新导入新配置。" +
-                     "轮换前脚本会自动打一次快照。",
-            onConfirm: function () {
-                return api("/api/v1/peers/" + encodeURIComponent(p.name) + "/rotate-key",
+                    "轮换后该客户端会立刻掉线，直到导入新配置。"
+                    ,
+           onConfirm: function () {
+               return api("/api/v1/peers/" + encodeURIComponent(p.name) + "/rotate-key",
                            { method: "POST", body: { confirm: p.name } })
-                    .then(function () {
-                        toast(p.name + " 密钥已轮换，记得重新分发配置", "warn");
-                        qrcodeDialog(p.name);
-                    });
-            }
-        });
-    }
+                   .then(function (res) {
+                       toast("密钥已轮换", "ok");
+                       if (res.detail) {
+                           openModal({ title: "新配置", wide: true, body: [
+                               el("pre", { class: "raw", text: res.detail })
+                           ], buttons: [{ label: "关闭", onClick: closeModal }] });
+                       }
+                   });
+           }
+       });
+   }
+
+   function shareLinkDialog(name) {
+       var links = [];
+       var list = el("div");
+       var busy = false;
+
+       function refreshLinks() {
+           return api("/api/v1/peers/" + encodeURIComponent(name) + "/shares").then(function (data) {
+               links = data.links || [];
+               clear(list);
+               if (!links.length) {
+                   list.appendChild(el("p", { class: "section-sub", text: "还没有分享链接。点击下方创建一个。" }));
+                   return;
+               }
+               links.forEach(function (l) {
+                   var url = location.origin + "/api/v1/share/" + l.id;
+                   list.appendChild(el("div", { class: "share-link-item" },
+                       el("div", {},
+                           el("a", { href: url, text: url, class: "mono", style: { wordBreak: "break-all" } })),
+                       el("div", { class: "section-sub", style: { marginTop: "4px" } },
+                           "过期时间：" + fmtDateTime(l.expire_at)),
+                       el("button", { class: "btn btn-sm btn-danger", type: "button", text: "删除",
+                           style: { marginTop: "4px" },
+                           onclick: function () {
+                               api("/api/v1/peers/" + encodeURIComponent(name) + "/shares/" + encodeURIComponent(l.id),
+                                   { method: "DELETE", body: {} })
+                                   .then(function () { toast("链接已删除", "ok"); refreshLinks(); })
+                                   .catch(function (exc) { toast(exc.message, "err"); });
+                           } })
+                   ));
+               });
+           });
+       }
+
+       openModal({
+           title: "分享链接 - " + name,
+           wide: true,
+           body: [list],
+           buttons: [
+               { label: "关闭", onClick: closeModal },
+               { label: "创建链接（24h）", class: "btn-primary", onClick: function (close, body) {
+                   if (busy) return;
+                   busy = true;
+                   api("/api/v1/peers/" + encodeURIComponent(name) + "/shares",
+                       { method: "POST", body: { expire_seconds: 86400 } })
+                       .then(function () { toast("链接已创建", "ok"); refreshLinks(); })
+                       .catch(function (exc) { toast(exc.message, "err"); })
+                       .then(function () { busy = false; });
+               } },
+               { label: "创建链接（7天）", class: "btn-primary", onClick: function (close, body) {
+                   if (busy) return;
+                   busy = true;
+                   api("/api/v1/peers/" + encodeURIComponent(name) + "/shares",
+                       { method: "POST", body: { expire_seconds: 604800 } })
+                       .then(function () { toast("链接已创建", "ok"); refreshLinks(); })
+                       .catch(function (exc) { toast(exc.message, "err"); })
+                       .then(function () { busy = false; });
+               } }
+           ]
+       });
+
+       refreshLinks();
+   }
+
+   function pingDialog(p) {
+       var target = (p.vpn_ip4 || "").split(",")[0].trim() || (p.endpoint || "").split(":")[0];
+       var input = el("input", { class: "mono", type: "text", value: target, autocomplete: "off" });
+       var result = el("pre", { class: "raw", style: { maxHeight: "300px", overflowY: "auto" } });
+       var busy = false;
+
+       openModal({
+           title: "Ping - " + p.name,
+           wide: true,
+           body: [
+               el("label", { class: "field" },
+                   el("span", { class: "field-label", text: "目标 IP" }),
+                   input),
+               el("p", { class: "section-sub", text: "从服务器向目标发送 4 个 ICMP 包" }),
+               result
+           ],
+           buttons: [
+               { label: "关闭", onClick: closeModal },
+               { label: "Ping", class: "btn-primary", onClick: function (close) {
+                   if (busy) return;
+                   var ip = input.value.trim();
+                   if (!ip) { toast("请输入 IP 地址", "err"); return; }
+                   busy = true;
+                   result.textContent = "pinging...";
+                   api("/api/v1/ping", { method: "POST", body: { target: ip } })
+                       .then(function (res) {
+                           result.textContent = res.output || (res.alive ? "主机可达" : "不可达");
+                       })
+                       .catch(function (exc) { result.textContent = exc.message; })
+                       .then(function () { busy = false; });
+               } }
+           ]
+       });
+   }
 
     function downloadConf(name) {
         apiDownload("/api/v1/peers/" + encodeURIComponent(name) + "/config", name + ".conf")
@@ -1377,28 +1523,47 @@
     }
 
     // ---- 新建客户端 ----
-    function addClientDialog() {
-        var name = el("input", { class: "mono", type: "text", placeholder: "iphone",
-                                 autocomplete: "off", spellcheck: "false", maxlength: "64" });
-        var ip4 = el("input", { class: "mono", type: "text", placeholder: "留空自动分配",
-                                autocomplete: "off", spellcheck: "false" });
-        var allowed = el("input", { class: "mono", type: "text", placeholder: "0.0.0.0/0",
-                                    autocomplete: "off", spellcheck: "false" });
-        var err = el("p", { class: "form-error", hidden: true });
-        var busy = false;
+   function addClientDialog() {
+       var name = el("input", { class: "mono", type: "text", placeholder: "iphone",
+                                autocomplete: "off", spellcheck: "false", maxlength: "64" });
+       var ip4 = el("input", { class: "mono", type: "text", placeholder: "留空自动分配",
+                               autocomplete: "off", spellcheck: "false" });
+       var allowed = el("input", { class: "mono", type: "text", placeholder: "0.0.0.0/0",
+                                   autocomplete: "off", spellcheck: "false" });
+       var err = el("p", { class: "form-error", hidden: true });
+       var busy = false;
+       var ipHint = el("div", { class: "field-hint", text: "" });
 
-        openModal({
-            title: "新建客户端",
-            body: [
-                err,
-                el("label", { class: "field" },
-                    el("span", { class: "field-label", text: "名称" }), name,
-                    el("p", { class: "field-hint",
-                        text: "字母、数字、点、下划线、连字符，1-64 位。会成为目录名。" })),
-                el("label", { class: "field" },
-                    el("span", { class: "field-label", text: "VPN IPv4（可选）" }), ip4,
-                    el("p", { class: "field-hint", text: "留空就从 VPN 网段里自动挑一个没被占用的。" })),
-                el("label", { class: "field" },
+       api("/api/v1/available-ips").then(function (data) {
+           if (data.total > 0) {
+               ipHint.textContent = "可用 IP: " + data.total + " 个，推荐: " +
+                   (data.available.slice(0, 3).join(", ") || "无");
+               ipHint.appendChild(el("br"));
+               ipHint.appendChild(el("button", {
+                   class: "btn btn-sm", type: "button", text: "用第一个可用 IP",
+                   style: { marginTop: "4px" },
+                   onclick: function () {
+                       if (data.available.length) ip4.value = data.available[0];
+                   }
+               }));
+           } else {
+               ipHint.textContent = "没有可用 IP，留空将自动分配。";
+           }
+       }).catch(function () { /* 忽略 */ });
+
+       openModal({
+           title: "新建客户端",
+           body: [
+               err,
+               el("label", { class: "field" },
+                   el("span", { class: "field-label", text: "名称" }), name,
+                   el("p", { class: "field-hint",
+                       text: "字母、数字、点、下划线、连字符，1-64 位。会成为目录名。" })),
+               el("label", { class: "field" },
+                   el("span", { class: "field-label", text: "VPN IPv4（可选）" }), ip4,
+                   el("p", { class: "field-hint", text: "留空就从 VPN 网段里自动挑一个没被占用的。" }),
+                   ipHint),
+               el("label", { class: "field" },
                     el("span", { class: "field-label", text: "客户端 AllowedIPs（可选）" }), allowed,
                     el("p", { class: "field-hint",
                         text: "0.0.0.0/0 = 这台设备所有流量都走 VPN（全局代理）；" +
@@ -1733,6 +1898,14 @@
                 .catch(function (exc) { toast(exc.message || String(exc), "err"); })
                 .then(function () { btn.disabled = false; });
         });
+        var btnTheme = document.getElementById("btn-theme");
+        if (btnTheme) btnTheme.addEventListener("click", function () {
+            var current = document.documentElement.dataset.theme || "dark";
+            var next = current === "dark" ? "light" : "dark";
+            document.documentElement.dataset.theme = next;
+            try { localStorage.setItem("wgm-theme", next); } catch (e) { /* 忽略 */ }
+            toast("已切换到" + (next === "dark" ? "深色" : "浅色") + "主题", "info");
+        });
     }
 
     // ==================================================================
@@ -1754,6 +1927,10 @@
     function boot() {
         bindLogin();
         bindTopbar();
+        try {
+            var saved = localStorage.getItem("wgm-theme");
+            if (saved) document.documentElement.dataset.theme = saved;
+        } catch (e) { /* 忽略 */ }
         window.addEventListener("hashchange", function () { if (state.authed) refresh(); });
 
         // 先探一次：Cookie 还在的话直接进主界面，不用重新登录。

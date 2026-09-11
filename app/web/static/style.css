@@ -34,6 +34,44 @@
             "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
 }
 
+/* Light theme overrides */
+[data-theme="light"] {
+    --bg: #f5f6f8;
+    --bg-soft: #ebeef2;
+    --card: #ffffff;
+    --card-soft: #f0f2f5;
+    --line: #d1d6dd;
+    --line-soft: #e2e5ea;
+    --fg: #1a1d23;
+    --fg-dim: #555f6d;
+    --fg-faint: #8b95a3;
+    --ok: #1a9e4a;
+    --warn: #c89000;
+    --err: #d64545;
+    --info: #2580c4;
+    --idle: #7a6bc4;
+    --accent: #2580c4;
+    --rx: #2580c4;
+    --tx: #c89000;
+}
+
+/* Peer search bar */
+.peer-search-bar { margin: 10px 0; }
+.peer-search-input {
+    width: 100%; padding: 8px 12px;
+    background: var(--card-soft); border: 1px solid var(--line);
+    color: var(--fg); border-radius: var(--radius-sm);
+    font-size: 14px; font-family: var(--sans); outline: none;
+}
+.peer-search-input:focus { border-color: var(--accent); }
+
+/* Share link items */
+.share-link-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+.share-link-item:last-child { border-bottom: none; }
+
 * { box-sizing: border-box; }
 
 html, body {
