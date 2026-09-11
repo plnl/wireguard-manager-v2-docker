@@ -271,9 +271,9 @@ def get_ddns_status(sites_dir: str, interface: str) -> list[dict]:
 if __name__ == "__main__":
     import sys
     import wgm_common as C
-    conf = C.load_conf(C.conf_path())
-    iface = conf.get("WG_INTERFACE", "wg0")
-    mgr_dir = conf.get("MANAGER_DIR", "/etc/wireguard-manager")
+    conf = C.manager_conf()
+    iface = conf.get("WG_INTERFACE", C.INTERFACE)
+    mgr_dir = conf.get("MANAGER_DIR", C.MANAGER_DIR)
     sites = os.path.join(mgr_dir, "sites")
     state = os.path.join(mgr_dir, "state")
 
