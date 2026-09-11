@@ -192,7 +192,58 @@ bold()   { _msg "\033[1m$*\033[0m"; }
 pause() {
     [[ "$RUN_MODE" == "interactive" ]] || return 0
     echo
-    read -rp "按 Enter 返回..." _
+   read -rp "按 Enter 返回..." _
+}
+print_existing_clients() {
+    local count=0
+    for mdir in "$CLIENTS_DIR"/*/; do
+        [[ -f "${mdir}meta.conf" ]] || continue
+        local cname cip cstat
+        cname=$(get_kv "${mdir}meta.conf" NAME)
+        cip=$(get_kv "${mdir}meta.conf" IP4)
+        cstat=$(get_kv "${mdir}meta.conf" ENABLED)
+        [[ "$cstat" == "yes" ]] && cstat="启用" || cstat="禁用"
+        printf "  %-16s %-18s [%s]\n" "$cname" "$cip" "$cstat"
+        ((count++))
+    done
+    return $count
+}
+
+print_existing_sites() {
+    local count=0
+    for sdir in "$SITES_DIR"/*/; do
+        [[ -f "${sdir}meta.conf" ]] || continue
+        local sname slitpep sstat
+        sname=$(get_kv "${sdir}meta.conf" NAME)
+        slitpep=$(get_kv "${sdir}meta.conf" REMOTE_LAN)
+        sstat=$(get_kv "${sdir}meta.conf" ENABLED)
+        [[ "$sstat" == "yes" ]] && sstat="启用" || sstat="禁用"
+        printf "  %-16s 对端LAN: %-20s [%s]\n" "$sname" "$slitpep" "$sstat"
+        ((count++))
+    done
+    return $count
+}
+
+prompt_client_name() {
+    local prompt_msg="$1"
+    print_existing_clients
+    local cnt=$?
+    (( cnt == 0 )) && { yellow "暂无客户端。"; return 1; }
+    echo
+    read -rp "$prompt_msg" name
+    [[ -z "$name" ]] && return 1
+    return 0
+}
+
+prompt_site_name() {
+    local prompt_msg="$1"
+    print_existing_sites
+    local cnt=$?
+    (( cnt == 0 )) && { yellow "暂无站点。"; return 1; }
+    echo
+    read -rp "$prompt_msg" name
+    [[ -z "$name" ]] && return 1
+    return 0
 }
 
 die() {
@@ -1683,7 +1734,10 @@ add_client() {
     bold "=========================================="
 
     if [[ ! -f "$WG_CONFIG" ]]; then
-        yellow "请先初始化服务端。"
+        yellow "服务端尚未初始化，无法添加客户端。"
+        echo
+        echo "请先在主菜单选择「2. 服务端」->「1. 初始化 / 重新配置服务端」"
+        echo "完成服务端初始化后再回来添加客户端。"
         pause
         return
     fi
@@ -1691,6 +1745,8 @@ add_client() {
     local name client_ip4 client_ip6 private_key public_key
     local server_public endpoint port dns allowed_ips cdir cconf use_ipv6
 
+    print_existing_clients
+    echo
     read -rp "客户端名称，例如 iphone/home-pc: " name
     [[ -z "$name" ]] && { red "客户端名称不能为空。"; pause; return; }
     [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || { red "名称只能包含字母、数字、下划线、短横线。"; pause; return; }
@@ -1853,7 +1909,11 @@ list_clients() {
 show_client_config() {
 
     clear
-    read -rp "客户端名称: " name
+    bold "=========================================="
+    bold "       查看客户端配置"
+    bold "=========================================="
+    echo
+    prompt_client_name "请输入客户端名称: " || { pause; return; }
     local cdir cconf
     cdir=$(client_dir_for "$name")
     cconf="${cdir}/${name}.conf"
@@ -1888,12 +1948,13 @@ toggle_client() {
     clear
 
     if [[ "$target_state" == "yes" ]]; then
-        bold "启用客户端"
+       bold "启用客户端"
     else
-        bold "禁用客户端"
+       bold "禁用客户端"
     fi
 
-    read -rp "客户端名称: " name
+    echo
+    prompt_client_name "请输入客户端名称: " || { pause; return; }
     local cdir="${CLIENTS_DIR}/${name}"
 
     if [[ ! -f "${cdir}/meta.conf" ]]; then
@@ -1915,7 +1976,11 @@ toggle_client() {
 delete_client() {
 
     clear
-    read -rp "请输入要删除的客户端名称: " name
+    bold "=========================================="
+    bold "          删除客户端"
+    bold "=========================================="
+    echo
+    prompt_client_name "请输入要删除的客户端名称: " || { pause; return; }
     local cdir="${CLIENTS_DIR}/${name}"
 
     if [[ ! -f "${cdir}/meta.conf" ]]; then
@@ -2010,9 +2075,15 @@ peer_status_menu() {
 
     echo
     read -rp "输入名称查看详情（Enter 返回）: " name
-    [[ -z "$name" ]] && return
+    if [[ -z "$name" ]]; then
+        green "已返回。"
+        sleep 1
+        return
+    fi
 
     show_peer_detail "$name"
+    echo
+    pause
 }
 
 show_peer_detail() {
@@ -2120,6 +2191,17 @@ add_route() {
 
     local rname rsubnet rvia rcomment
 
+    if [[ -s "$ROUTES_CONF" ]]; then
+        echo "已有路由："
+        printf "%-16s %-20s %-16s %-20s\n" "名称" "目标网段" "下一跳" "备注"
+        while IFS='|' read -r rname rsubnet rvia rcomment; do
+            [[ -z "$rname" ]] && continue
+            printf "%-16s %-20s %-16s %-20s\n" "$rname" "$rsubnet" "$rvia" "$rcomment"
+        done < "$ROUTES_CONF"
+        echo
+    fi
+    rname=""; rsubnet=""; rvia=""; rcomment=""
+
     read -rp "路由名称（便于识别，如 warehouse-net）: " rname
     [[ -z "$rname" ]] && { red "名称不能为空。"; pause; return; }
 
@@ -2166,6 +2248,23 @@ add_route() {
 delete_route() {
 
     clear
+
+    bold "=========================================="
+    bold "       删除静态路由"
+    bold "=========================================="
+    echo
+    if [[ ! -s "$ROUTES_CONF" ]]; then
+        yellow "暂无路由。"
+        pause
+        return
+    fi
+    printf "%-16s %-20s %-16s %-20s\n" "名称" "目标网段" "下一跳" "备注"
+    local rname rsubnet rvia rcomment
+    while IFS='|' read -r rname rsubnet rvia rcomment; do
+        [[ -z "$rname" ]] && continue
+        printf "%-16s %-20s %-16s %-20s\n" "$rname" "$rsubnet" "$rvia" "$rcomment"
+    done < "$ROUTES_CONF"
+    echo
     read -rp "要删除的路由名称: " rname
 
     if ! grep -q "^${rname}|" "$ROUTES_CONF" 2>/dev/null; then
@@ -2208,7 +2307,7 @@ routing_menu() {
             1) list_routes ;;
             2) add_route ;;
             3) delete_route ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -2238,7 +2337,7 @@ key_management_menu() {
             2) rotate_server_key ;;
             3) rotate_client_key ;;
             4) export_client_pubkeys ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -2290,7 +2389,11 @@ rotate_server_key() {
 rotate_client_key() {
 
     clear
-    read -rp "客户端名称: " name
+    bold "=========================================="
+    bold "       轮换客户端密钥"
+    bold "=========================================="
+    echo
+    prompt_client_name "请输入客户端名称: " || { pause; return; }
     local cdir="${CLIENTS_DIR}/${name}"
 
     [[ -f "${cdir}/meta.conf" ]] || { red "客户端不存在。"; pause; return; }
@@ -2429,7 +2532,7 @@ advanced_menu() {
                 pause
                 ;;
             6) uninstall_manager ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -2619,6 +2722,8 @@ create_site() {
     local name local_lan remote_lan remote_wg_ip remote_endpoint remote_pubkey
     local mode keepalive vpn_net4
 
+    print_existing_sites
+    echo
     read -rp "站点名称（如 hq / branch-a）: " name
     [[ -z "$name" ]] && { red "名称不能为空。"; pause; return; }
     [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || { red "名称只能包含字母、数字、下划线、短横线。"; pause; return; }
@@ -2734,7 +2839,17 @@ list_sites() {
 toggle_site() {
     local target_state="$1"
     clear
-    read -rp "站点名称: " name
+    if [[ "$target_state" == "yes" ]]; then
+        bold "=========================================="
+        bold "          启用站点"
+        bold "=========================================="
+    else
+        bold "=========================================="
+        bold "          禁用站点"
+        bold "=========================================="
+    fi
+    echo
+    prompt_site_name "请输入站点名称: " || { pause; return; }
     local sdir="${SITES_DIR}/${name}"
 
     [[ -f "${sdir}/meta.conf" ]] || { red "站点不存在。"; pause; return; }
@@ -2751,7 +2866,11 @@ toggle_site() {
 delete_site() {
 
     clear
-    read -rp "请输入要删除的站点名称: " name
+    bold "=========================================="
+    bold "          删除站点"
+    bold "=========================================="
+    echo
+    prompt_site_name "请输入要删除的站点名称: " || { pause; return; }
     local sdir="${SITES_DIR}/${name}"
 
     [[ -f "${sdir}/meta.conf" ]] || { red "站点不存在。"; pause; return; }
@@ -2772,7 +2891,11 @@ delete_site() {
 test_site() {
 
     clear
-    read -rp "站点名称: " name
+    bold "=========================================="
+    bold "       站点连通性测试"
+    bold "=========================================="
+    echo
+    prompt_site_name "请输入站点名称: " || { pause; return; }
     local sdir="${SITES_DIR}/${name}"
 
     [[ -f "${sdir}/meta.conf" ]] || { red "站点不存在。"; pause; return; }
@@ -3033,7 +3156,7 @@ site_to_site_menu() {
             4) toggle_site "no" ;;
             5) delete_site ;;
             6) test_site ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -3070,7 +3193,7 @@ server_menu() {
             5) wg_down; pause ;;
             6) wg_restart; pause ;;
             7) rebuild_server_config && green "已重新生成。"; pause ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -3105,7 +3228,7 @@ client_menu() {
             4) toggle_client "yes" ;;
             5) toggle_client "no" ;;
             6) delete_client ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -3172,7 +3295,7 @@ firewall_menu() {
                 green "已按当前客户端/站点状态重新同步防火墙规则（这不会影响已建立的 WireGuard 连接）。"
                 pause
                 ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -4009,7 +4132,7 @@ traffic_menu() {
             3) web_python wgm_traffic.py report --range 30d ;;
             4) web_python wgm_traffic.py report --range 30d --by-peer ;;
             5) web_python wgm_traffic.py chart  --range 24h ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
         echo
@@ -4041,7 +4164,7 @@ health_menu() {
             2) diagnostic; return ;;
             3) alert_menu ;;
             4) web_python wgm_alert.py history ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
         echo
@@ -4136,7 +4259,7 @@ alert_menu() {
                 ;;
             9) web_python wgm_alert.py test; pause ;;
             10) web_python wgm_alert.py history; pause ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -4650,7 +4773,7 @@ web_menu() {
                 pause
                 ;;
             11) web_uninstall ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -4710,6 +4833,10 @@ Site-to-Site
   route list [--json] | route add <name> <subnet> <via> [comment] | route delete <name>
   fw backend|show|sync|clean
   key rotate-server | key export-pubkeys
+
+DDNS
+  ddns check                        手动触发一次 DDNS 解析与端点更新
+  ddns status                       查看 DDNS 变更历史
 
 告警 / 备份 / 面板
   alert test | alert history
@@ -5359,6 +5486,14 @@ cli_dispatch() {
             esac
             ;;
 
+        ddns)
+            local sub="${1-}"; shift || true
+            case "$sub" in
+                check)  web_python wgm_ddns.py --check ;;
+                status) web_python wgm_ddns.py --status ;;
+                *) red "用法：wgmgr ddns check|status"; return 2 ;;
+            esac
+            ;;
         route)  cli_route "$@" ;;
         server) cli_server "$@" ;;
         fw)     cli_fw "$@" ;;
@@ -5517,7 +5652,7 @@ backup_restore_menu() {
             1) backup_config ;;
             2) restore_backup ;;
             3) restore_snapshot ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done
@@ -5695,7 +5830,7 @@ system_menu() {
                 fi
                 pause
                 ;;
-            0) return ;;
+            0) green "已返回。"; sleep 1; return ;;
             *) yellow "无效选择。"; sleep 1 ;;
         esac
     done

@@ -35,6 +35,7 @@ import wgm_alert
 import wgm_common as C
 import wgm_health
 import wgm_traffic
+import wgm_ddns
 
 LOCK_PATH = "/run/wireguard-manager-collector.lock"
 
@@ -197,6 +198,20 @@ def cycle(seq: int) -> dict:
         removed = wgm_traffic.prune()
         if removed:
             C.log_line("清理了 %d 个过期流量采样文件" % removed)
+
+    # 7. DDNS 端点检查（每 5 个周期跑一次，约 2-5 分钟）
+    if seq % 5 == 0:
+        try:
+            iface = conf.get("WG_INTERFACE", "wg0")
+            mgr_dir = conf.get("MANAGER_DIR", "/etc/wireguard-manager")
+            sites_dir = os.path.join(mgr_dir, "sites")
+            state_dir = os.path.join(mgr_dir, "state")
+            changes = wgm_ddns.check_ddns(sites_dir, iface, state_dir,
+                                          log_fn=C.log_line)
+            if changes:
+                summary["ddns_changes"] = len(changes)
+        except Exception as exc:
+            summary["errors"].append("ddns：%s" % exc)
 
     return summary
 
