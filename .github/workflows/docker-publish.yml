@@ -5,6 +5,11 @@ on:
     branches: [main, master]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '自定义版本号（如 2.1.0、v2.1.0-rc1），留空则用 sha 标签'
+        required: false
+        default: ''
 
 env:
   IMAGE_NAME: wireguard-manager-v2
@@ -33,6 +38,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=sha,prefix=sha-
+            type=raw,value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -44,4 +50,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
